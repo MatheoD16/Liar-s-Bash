@@ -10,12 +10,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <mqueue.h>
-#include <semaphore.h>
 #include <time.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <sys/sem.h>
 
 #include "common.h"
 
@@ -23,7 +22,28 @@
 #define LIAR_DECK_SIZE 20   // 6 rois, 6 dames, 6 as, 2 jokers
 #define TABLE_DECK_SIZE 3   // 1 roi, 1 dame, 1 as
 
+
+// clefs pour ftok
+#define CLE_PATH "/tmp"
+#define ID_SHM_JEU 65
+#define ID_SHM_BL  66
+#define ID_SEM     67
+
+// index pour le tableau de semaphores
+#define SEM_VIDE 0
+#define SEM_PLEIN 1
+#define SEM_MUTEX 2
+
+
+
 // --- structures privees ---
+
+//boite au lettre
+typedef struct {
+    ClientMessage buffer[MAX_MSG_BL];
+    int ecriture;
+    int lecture;
+} ZoneBL;
 
 // paquet du croupire (pas dans la shm pour eviter la triche)
 typedef struct {
@@ -37,6 +57,8 @@ extern int shm_fd;
 extern mqd_t bl_id;         // id de la bl
 extern sem_t *sem_id;
 extern Deck main_deck;
+extern ZoneBL *zone_bl;       // ptr vers la 2eme shm (bl)
+// type extern: pour ne pas les créer dans le .h mais dans les .c (solution: IA)
 
 
 // --- ipc & system ---
