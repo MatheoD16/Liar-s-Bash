@@ -123,7 +123,7 @@ void draw_box(int top, int left, int bottom, int right);
 void draw_opponents(int height, int width);
 
 // dessine une carte
-void draw_card(int y, int x);
+void draw_card(int y, int x, int type, int color);
 
 // dessine le pot au milieu de la table
 void draw_pot(int height, int width);
@@ -132,5 +132,7 @@ void draw_pot(int height, int width);
 void draw_card_back(int y, int x);
 
 void draw_opponent_card_hand(int top, int left, int bottom, int right);
+
+void draw_player_card_hand(int top, int left, int bottom, int right);
 
 #endif

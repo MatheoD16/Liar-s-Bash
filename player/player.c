@@ -2,6 +2,8 @@
 
 int nb_player = 4;
 
+const char *TYPE_SYMBOLS[] = {"♥","♦","♣","♠"};
+
 int main(){
 
     init_graphic();
@@ -20,16 +22,15 @@ void init_graphic(){
     
     if(has_colors()){
         start_color();
-        init_pair(1, COLOR_RED, COLOR_BLACK);
+        init_pair(1, COLOR_RED, COLOR_WHITE);
         init_pair(2, COLOR_BLACK, COLOR_WHITE);
         init_pair(4, COLOR_BLACK, COLOR_BLACK);
+        init_pair(5, COLOR_WHITE, COLOR_WHITE);
         if (can_change_color()){
             init_color(10, 0, 350, 100);
             init_pair(3, COLOR_WHITE, 10);
-            //init_pair(4, COLOR_BLACK, 10);
         }else{
         init_pair(3, COLOR_WHITE, COLOR_GREEN);
-        //init_pair(4, COLOR_BLACK, COLOR_GREEN);
         }
     }
 }
@@ -49,13 +50,16 @@ void draw_box(int top, int left, int bottom, int right)
     mvaddch(bottom, right, ACS_LRCORNER);
 }
 
-void draw_card(int y, int x)
+void draw_card(int y, int x, int type, int color)
 {
-    int h = 5;
-    int w = 9;
+    int h = 7;
+    int w = 10;
 
-    attron(COLOR_PAIR(2)); // blanc
+    attron(COLOR_PAIR(5));
 
+    // ======================
+    // Contour
+    // ======================
     mvaddch(y, x, ACS_ULCORNER);
     mvhline(y, x+1, ACS_HLINE, w-2);
     mvaddch(y, x+w-1, ACS_URCORNER);
@@ -67,9 +71,38 @@ void draw_card(int y, int x)
     mvvline(y+1, x, ACS_VLINE, h-2);
     mvvline(y+1, x+w-1, ACS_VLINE, h-2);
 
-    mvprintw(y+2, x+3, "?");
+    // ======================
+    // Nettoyage intérieur
+    // ======================
+    for(int i = 1; i < h-1; i++)
+        mvhline(y+i, x+1, ' ', w-2);
 
-    attroff(COLOR_PAIR(2));
+    attroff(COLOR_PAIR(5));
+
+    // ======================
+    // Symboles coins
+    // ======================
+    attron(A_BOLD);
+    
+    attron(COLOR_PAIR(color));
+
+    mvprintw(y+1, x+1, "%s", TYPE_SYMBOLS[type]);          // Haut gauche
+    mvprintw(y+1, x+w-2, "%s", TYPE_SYMBOLS[type]);     // Haut droite
+    mvprintw(y+h-2, x+1, "%s", TYPE_SYMBOLS[type]);        // Bas gauche
+    mvprintw(y+h-2, x+w-2, "%s", TYPE_SYMBOLS[type]);     // Bas droite
+
+
+    // ======================
+    // LB centré
+    // ======================
+
+    int center_y = y + h/2;
+    int center_x = x + w/2;
+
+    mvprintw(center_y, center_x, "1");
+
+    attroff(A_BOLD);
+    attroff(COLOR_PAIR(color));
 }
 
 void draw_card_back(int y, int x)
@@ -153,6 +186,32 @@ void draw_opponent_card_hand(int top, int left, int bottom, int right)
     for(int i = 0; i < 5; i++)
     {
         draw_card_back(start_y, start_x + i * (card_w + spacing));
+    }
+}
+
+void draw_player_card_hand(int top, int left, int bottom, int right)
+{
+    int card_h = 7;
+    int card_w = 10;
+    int spacing = 3;
+
+    int nb_cards = 5;
+
+    int total_width = nb_cards * card_w + (nb_cards - 1) * spacing;
+
+    int box_width = right - left;
+    int start_x = left + (box_width - total_width) / 2;
+    int start_y = top + (bottom - top - card_h) / 2;
+
+    for(int i = 0; i < nb_cards; i++)
+    {
+        int type = i % 4;
+        int color = (type == 0 || type == 1) ? 1 : 2;
+
+        draw_card(start_y,
+                  start_x + i * (card_w + spacing),
+                  type,
+                  color);
     }
 }
 
@@ -270,6 +329,8 @@ void display_game_state(){
     draw_box(top, left, bottom, right);
     mvprintw(top-1, left+2, "Votre main");
     attroff(COLOR_PAIR(3));
+
+    draw_player_card_hand(top+2, left, bottom, right);
 
     // ===============================
     // Adversaires
