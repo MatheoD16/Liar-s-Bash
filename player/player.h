@@ -131,8 +131,10 @@ void draw_pot(int height, int width);
 // dessine une carte face cachée
 void draw_card_back(int y, int x);
 
+// dessine les cartes dans la main des adversaires
 void draw_opponent_card_hand(int top, int left, int bottom, int right);
 
+// dessine les cartes dans la main du joueur
 void draw_player_card_hand(int top, int left, int bottom, int right);
 
 #endif
