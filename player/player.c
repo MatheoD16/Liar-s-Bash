@@ -1,17 +1,83 @@
 #include "player.h"
 
+#define CHECK(sts,msg) if ((sts) == -1) { perror(msg); exit(-1); }
+
 int nb_player = 4;
+int id_player;
+GameState *game_state_shm;
+ZoneBL *zone_bl;
+pid_t my_pid;
+PlayerState my_state;
 
 const char *TYPE_SYMBOLS[] = {"♥","♦","♣","♠"};
 
 int main(){
 
+    //init_ipc();
     init_graphic();
-    display_game_state();
+
+    my_pid = getpid();
+    game_loop();
 
     return 0;
 }
 
+/////////////////////////
+// Partie communication 
+/////////////////////////
+void init_ipc(){
+
+    //MP bl
+    key_t cle_bl;
+    int shmid_bl;
+    
+    CHECK(cle_bl = ftok(CLE_PATH, ID_SHM_BL), "--Error ftok bl--");
+    CHECK(shmid_bl = shmget(cle_bl, sizeof(ZoneBL), 0666), "--Error shmget bl--");
+    zone_bl = (ZoneBL *) shmat(shmid_bl, NULL, 0);
+    if( zone_bl == (void *) -1){perror("--Error shmat bl--"); exit(1);}
+
+    //MP jeu
+    key_t cle_jeu;
+    int shmid_jeu;
+
+    CHECK(cle_jeu = ftok(CLE_PATH, ID_SHM_JEU), "--Error ftok jeu --");
+    CHECK(shmid_jeu = shmget(cle_jeu, sizeof(GameState), 0666), "--Error shmget jeu--");
+    game_state_shm = (GameState *) shmat(shmid_jeu, NULL, 0);
+    if( game_state_shm == (void *) -1){perror("--Error shmat jeu--"); exit(1);}
+
+}
+
+
+
+void game_loop(){
+    
+    //Boucle while 1 
+    //Attente des signaux pour lire la mp et afficher/gérer le tour
+    //Sécuriser la lecture de la MP game grâce à des sémaphores
+    GameState copy_game_state = create_test_gamestate(); //* game_state_shm;
+    //Libérer le sémaphore
+    for (int i = 0; i < MAX_PLAYERS; i++){
+        if (copy_game_state.players[i].pid == my_pid)
+            my_state = copy_game_state.players[i];
+            id_player = i;
+    }
+
+    //Pour tester affichage avec données factices
+    my_state = copy_game_state.players[1];
+    id_player = 1;
+
+    //Pour définir la variable nbPlayer
+    //nb_player = copy_game_state.connected_players;
+
+    display_game_state(&copy_game_state);
+}
+
+
+
+
+//////////////////////////
+//Partie graphique
+//////////////////////////
 void init_graphic(){
     
     setlocale(LC_ALL, ""); 
@@ -26,6 +92,9 @@ void init_graphic(){
         init_pair(2, COLOR_BLACK, COLOR_WHITE);
         init_pair(4, COLOR_BLACK, COLOR_BLACK);
         init_pair(5, COLOR_WHITE, COLOR_WHITE);
+        init_pair(6, COLOR_BLUE, COLOR_WHITE);
+        init_pair(7, COLOR_YELLOW, COLOR_WHITE);
+        init_pair(8, COLOR_MAGENTA, COLOR_WHITE);
         if (can_change_color()){
             init_color(10, 0, 350, 100);
             init_pair(3, COLOR_WHITE, 10);
@@ -50,10 +119,37 @@ void draw_box(int top, int left, int bottom, int right)
     mvaddch(bottom, right, ACS_LRCORNER);
 }
 
-void draw_card(int y, int x, int type, int color)
+void draw_card(int y, int x, CardValue card)
 {
     int h = 7;
     int w = 10;
+
+    int color;
+    char *value;
+    switch (card)
+    {
+    case CARD_KING:
+        value = "K";
+        color = 6;
+        break;
+    case CARD_QUEEN:
+        value = "Q";
+        color = 1;
+        break;
+    case CARD_ACE:
+        value = "A";
+        color = 7;
+        break;
+    case CARD_JOKER:
+        value = "★";
+        color = 8;
+        break;
+    
+    default:
+        value = "?"; 
+        color = 2;
+        break;
+    }
 
     attron(COLOR_PAIR(5));
 
@@ -86,20 +182,20 @@ void draw_card(int y, int x, int type, int color)
     
     attron(COLOR_PAIR(color));
 
-    mvprintw(y+1, x+1, "%s", TYPE_SYMBOLS[type]);          // Haut gauche
-    mvprintw(y+1, x+w-2, "%s", TYPE_SYMBOLS[type]);     // Haut droite
-    mvprintw(y+h-2, x+1, "%s", TYPE_SYMBOLS[type]);        // Bas gauche
-    mvprintw(y+h-2, x+w-2, "%s", TYPE_SYMBOLS[type]);     // Bas droite
+    mvprintw(y+1, x+1, "%s", TYPE_SYMBOLS[0]);          // Haut gauche
+    mvprintw(y+1, x+w-2, "%s", TYPE_SYMBOLS[1]);     // Haut droite
+    mvprintw(y+h-2, x+1, "%s", TYPE_SYMBOLS[2]);        // Bas gauche
+    mvprintw(y+h-2, x+w-2, "%s", TYPE_SYMBOLS[3]);     // Bas droite
 
 
     // ======================
-    // LB centré
+    // Valeur de la carte
     // ======================
 
     int center_y = y + h/2;
     int center_x = x + w/2;
 
-    mvprintw(center_y, center_x, "1");
+    mvprintw(center_y, center_x, "%s", value); 
 
     attroff(A_BOLD);
     attroff(COLOR_PAIR(color));
@@ -172,7 +268,7 @@ void draw_pot(int height, int width)
     attroff(COLOR_PAIR(3));
 }
 
-void draw_opponent_card_hand(int top, int left, int bottom, int right)
+void draw_opponent_card_hand(int top, int left, int bottom, int right, int nb_card)
 {
     int card_h = 7;
     int card_w = 11;
@@ -183,7 +279,7 @@ void draw_opponent_card_hand(int top, int left, int bottom, int right)
     int start_x = left + (box_width - total_width) / 2;
     int start_y = top + (bottom - top - card_h) / 2 + 1;
 
-    for(int i = 0; i < 5; i++)
+    for(int i = 0; i < nb_card; i++)
     {
         draw_card_back(start_y, start_x + i * (card_w + spacing));
     }
@@ -195,7 +291,7 @@ void draw_player_card_hand(int top, int left, int bottom, int right)
     int card_w = 10;
     int spacing = 3;
 
-    int nb_cards = 5;
+    int nb_cards = my_state.cards_left;
 
     int total_width = nb_cards * card_w + (nb_cards - 1) * spacing;
 
@@ -205,24 +301,24 @@ void draw_player_card_hand(int top, int left, int bottom, int right)
 
     for(int i = 0; i < nb_cards; i++)
     {
-        int type = i % 4;
-        int color = (type == 0 || type == 1) ? 1 : 2;
-
+        CardValue card = my_state.hand[i];
         draw_card(start_y,
                   start_x + i * (card_w + spacing),
-                  type,
-                  color);
+                  card);
     }
 }
 
 // ===============================
 // ADVERSAIRES
 // ===============================
-void draw_opponents(int height, int width)
+void draw_opponents(int height, int width, GameState * game_state)
 {
     int box_height = 10;
     int box_width  = width / 3 + 3;
     int top_y = 2;
+
+    //TODO FAUDRA CHANGER LA VERIFICATION DU NB JOUEUR EN FONCTION DE COMMENT EST FAIT PLAYERS
+    //TODO peut être tableau des pids, (si 0, alors pas de joueur) comme ça, on peut associer case joueur 2/3/4 aux même pid
 
     if (nb_player == 2)
     {
@@ -234,7 +330,7 @@ void draw_opponents(int height, int width)
         draw_box(top_y, left, bottom, right+3);
         mvprintw(top_y-1, left+2, "Joueur 2");
         attroff(COLOR_PAIR(3));
-        draw_opponent_card_hand(top_y, left+4, bottom, right);
+        //draw_opponent_card_hand(top_y, left+4, bottom, right);
     }
     else if (nb_player == 3)
     {
@@ -246,7 +342,7 @@ void draw_opponents(int height, int width)
         draw_box(top_y, left1-3, bottom, right1);
         mvprintw(top_y-1, left1+2, "Joueur 2");
         attroff(COLOR_PAIR(3));
-        draw_opponent_card_hand(top_y, left1, bottom, right1);
+        //draw_opponent_card_hand(top_y, left1, bottom, right1);
 
         int left2 = width - width/8 - box_width;
         int right2 = left2 + box_width;
@@ -255,7 +351,7 @@ void draw_opponents(int height, int width)
         draw_box(top_y, left2, bottom, right2+3);
         mvprintw(top_y-1, left2+2, "Joueur 3");
         attroff(COLOR_PAIR(3));
-        draw_opponent_card_hand(top_y, left2+4, bottom, right2);
+        //draw_opponent_card_hand(top_y, left2+4, bottom, right2);
     }
     else if (nb_player == 4)
     {
@@ -268,7 +364,7 @@ void draw_opponents(int height, int width)
         draw_box(top_y, left_top, bottom_top, right_top);
         mvprintw(top_y-1, left_top+2, "Joueur 2");
         attroff(COLOR_PAIR(3));
-        draw_opponent_card_hand(top_y, left_top + 2, bottom_top, right_top);
+        draw_opponent_card_hand(top_y, left_top + 2, bottom_top, right_top, game_state->players[0].cards_left);
 
         // Gauche
         int mid_y = height/2 - box_height/2;
@@ -280,7 +376,7 @@ void draw_opponents(int height, int width)
         draw_box(mid_y, left_g, bottom_g, right_g);
         mvprintw(mid_y-1, left_g+2, "Joueur 3");
         attroff(COLOR_PAIR(3));
-        draw_opponent_card_hand(mid_y, left_g + 2, bottom_g, right_g);
+        draw_opponent_card_hand(mid_y, left_g + 2, bottom_g, right_g, game_state->players[2].cards_left);
 
         // Droite
         int right_x = width - box_width - 2;
@@ -291,14 +387,14 @@ void draw_opponents(int height, int width)
         draw_box(mid_y, right_x - 1, bottom_d, right_d);
         mvprintw(mid_y-1, right_x+2, "Joueur 4");
         attroff(COLOR_PAIR(3));
-        draw_opponent_card_hand(mid_y, right_x + 1, bottom_d, right_d);
+        draw_opponent_card_hand(mid_y, right_x + 1, bottom_d, right_d, game_state->players[4].cards_left);
     }
 }
 
 // ===============================
 // DISPLAY
 // ===============================
-void display_game_state(){
+void display_game_state(GameState * game_state){
 
     int height, width;
     getmaxyx(stdscr, height, width);
@@ -335,8 +431,11 @@ void display_game_state(){
     // ===============================
     // Adversaires
     // ===============================
-    draw_opponents(height, width);
+    draw_opponents(height, width, game_state);
 
+    // ===============================
+    // Pot
+    // ===============================
     draw_pot(height, width);
 
     refresh();

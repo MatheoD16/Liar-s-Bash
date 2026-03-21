@@ -15,11 +15,16 @@
 #define SEM_NAME "/liars_bash_sem"
 
 // --- GAME CONFIG ---
+#define MAX_MSG_BL 3
 #define MAX_PLAYERS 4
 #define HAND_SIZE 5
 #define REVOLVER_CAPACITY 6
 #define SIG_UPDATE SIGUSR1 // signal pour refresh UI client
 
+#define CLE_PATH "/tmp"
+#define ID_SHM_JEU 65
+#define ID_SHM_BL  66
+#define ID_SEM     67
 // --- ENUMS ---
 typedef enum {
     CARD_KING = 0,
@@ -59,6 +64,13 @@ typedef struct {
 } ClientMessage; //faut tout mettre parceque les paquets s'envoient pas dans la BL s'ils font pas la meme taille
 //(c'est chiant j'ai passé 1h a comprendre le man c'est bien eft)
 
+//boite au lettre
+typedef struct {
+    ClientMessage buffer[HAND_SIZE];
+    int ecriture;
+    int lecture;
+} ZoneBL;
+
 // etat d'un joueur (via SHM)
 typedef struct {
     pid_t pid;            // 0 si slot dispo
@@ -67,7 +79,7 @@ typedef struct {
 
     CardValue hand[HAND_SIZE];  //5 (je crois?)
     int cards_left;
-    int bullets_survived;       //pour savoirla proba qu'il a de mourrir
+    int bullets_survived;       //pour savoir la proba qu'il a de mourrir
 } PlayerState;
 
 // etat du jeu (via SHM, protege par semaphore)
@@ -86,7 +98,7 @@ typedef struct {
     int last_played_count;      //pour savoir combien de carte enlever
 
     // data joueurs
-    PlayerState players[MAX_PLAYERS];   //surtout pour savoir combien de cartes affichées a chaqueposition de joueur pour le client
+    PlayerState players[MAX_PLAYERS];   //surtout pour savoir combien de cartes affichées a chaque position de joueur pour le client
 
     // log pour affichage (ncruses )
     char log_message[128];              //pour afficher genre "jouer x a joué 3 cartes Y'
