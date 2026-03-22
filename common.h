@@ -86,6 +86,8 @@ typedef struct {
     int pot_total_cards;        //le nombre dde cardes déja jouées pour savoir combien en afficher
     int last_played_count;      //pour savoir combien de carte enlever
 
+    int winner_idx;
+
     // data joueurs
     PlayerState players[MAX_PLAYERS];   //surtout pour savoir combien de cartes affichées a chaqueposition de joueur pour le client
 

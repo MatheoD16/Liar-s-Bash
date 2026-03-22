@@ -11,6 +11,10 @@ int nb_other_player = 0;
 
 int selected_card = -1;
 
+int liar_call = 0; 
+int russian_roulette = 0;
+
+int nb_player_alive = MAX_PLAYERS;
 
 int card_id_to_play[MAX_CARD_PLAYABLE];
 int nb_card_played = 0;
@@ -102,6 +106,16 @@ void game_loop(){
 
             nb_player = copy_game_state.connected_players;
 
+
+            int new_nb_player_alive = 0;
+            for (int i = 0; i < nb_player; i++){
+                if (copy_game_state.players[i].is_alive) new_nb_player_alive ++;
+            }
+            
+            if (new_nb_player_alive != nb_player_alive && new_nb_player_alive != nb_player) display_white_screen();
+
+            nb_player_alive = new_nb_player_alive;
+            
             //Afficher l'état du jeu au début du tour
             display_game_state(&copy_game_state);
 
@@ -114,10 +128,11 @@ void game_loop(){
                 play_turn(&copy_game_state);
                 break;
             case PHASE_ROULETTE:
-                //Gestion roulette
+                play_russian_roulette(&copy_game_state);
                 break;
             case PHASE_GAME_OVER:
-                //Affichage fin de partie
+                display_end_screen(&copy_game_state);
+                end_game_loop();
                 cleanup();
                 break;
             default:
@@ -129,9 +144,7 @@ void game_loop(){
 }
 
 void select_card(GameState *game_state){
-
     int ch;
-
     selected_card = 0;
     for (int i = 0; i < HAND_SIZE; i ++){
         if (my_state.hand[i] != CARD_NONE){
@@ -162,11 +175,14 @@ void select_card(GameState *game_state){
             } else if (ch == ' '){
                 if (is_card_played(selected_card)) remove_card_to_play(selected_card);
                 else add_card_to_play(selected_card);
-            } else if (ch == '\n' && nb_card_played > 0) {
+            } else if ((ch == 'l' || ch == 'L') && game_state->last_player_idx != -1){
+                liar_call = 1;
+                break;
+            }else if (ch == '\n' && nb_card_played > 0) {
                 break;
             }
             display_game_state(game_state);
-    }
+        }
     }
     selected_card = -1;
 
@@ -208,21 +224,54 @@ void send_played_action(){
     msg.action = ACT_PLAY_CARDS;
     memcpy(msg.card_indices, card_id_to_play, MAX_CARD_PLAYABLE * sizeof(int));
     msg.client_pid = my_pid;
-    strncpy(msg.pseudo, player_name ,31);
+    strncpy(msg.pseudo, player_name, 31);
     msg.num_cards_played = nb_card_played;
     send_message(&msg); 
+}
+
+void send_liar_call(){
+    ClientMessage msg;
+    msg.action = ACT_CALL_LIAR;
+    msg.client_pid = my_pid;
+    strncpy(msg.pseudo, player_name, 31);
+    msg.num_cards_played = 0;
+    send_message(&msg);
 }
 
 void play_turn(GameState *game_state){
     if (game_state->players[game_state->current_player_idx].pid == my_pid){
         select_card(game_state);
-        send_played_action();
+        if (liar_call){
+            send_liar_call();
+        }else{
+            send_played_action();
+        }
 
-        memset(card_id_to_play, 0, 3 * sizeof(int));
+        memset(card_id_to_play, -1, 3 * sizeof(int));
         nb_card_played = 0;
-
-        //TODO Gérer bullet
+        liar_call = 0;
     }
+}
+
+void play_russian_roulette(GameState * game_state){
+    russian_roulette = 1;
+    display_game_state(game_state);
+    if (game_state->players[game_state->current_player_idx].pid == my_pid){
+        char ch;
+        while (1){
+            ch = getch();
+            if (ch == '\n') break;
+        }    
+        ClientMessage msg;
+        msg.action = ACT_SHOOT;
+        msg.client_pid = my_pid;
+        strncpy(msg.pseudo, player_name, 31);
+        msg.num_cards_played = 0;
+        send_message(&msg);
+    }
+
+    russian_roulette = 0;
+
 }
 
 void handle_update(int sig){
@@ -234,8 +283,30 @@ void handle_sigint(int sig){
     cleanup();
 }
 
+void end_game_loop(){
+    char ch;
+
+    while(1){
+        ch = getch();
+
+        if (ch != ERR){
+            break;
+        }
+    }
+}
+
+void send_quit(){
+    ClientMessage msg;
+    msg.action = ACT_QUIT;
+    msg.client_pid = my_pid;
+    strncpy(msg.pseudo, player_name, 31);
+    msg.num_cards_played = 0;
+    send_message(&msg);
+}
 
 void cleanup(){
+    send_quit();
+
     endwin();
 
     if (game_state_shm != NULL){
@@ -258,7 +329,7 @@ void cleanup(){
         sem_id = SEM_FAILED;
     }
 
-    printf("Player terminé avec succès !");
+    printf("Player terminé avec succès !\n");
     exit(0);
 }
 
@@ -290,8 +361,10 @@ void init_graphic(){
         if (can_change_color()){
             init_color(10, 0, 350, 100);
             init_pair(3, COLOR_WHITE, 10);
+            init_pair(11, COLOR_RED, 10);
         }else{
-        init_pair(3, COLOR_WHITE, COLOR_GREEN);
+            init_pair(3, COLOR_WHITE, COLOR_GREEN);
+            init_pair(11, COLOR_RED, COLOR_GREEN);
         }
     }
 }
@@ -469,35 +542,43 @@ void draw_pot(int height, int width, GameState * game_state)
 
     draw_card_back(center_y, center_x);
 
-    // Texte en dessous
-    attron(COLOR_PAIR(3));
+    if (russian_roulette){
+        attron(COLOR_PAIR(11));
+        char *current_player = game_state->players[game_state->current_player_idx].pseudo;
+        
+        if (game_state->last_player_idx == game_state->current_player_idx)
+            mvprintw(center_y + 10, center_x -15, "%s s'est trompé ! C'est l'heure de la roulette russe !", current_player);
+        else
+            mvprintw(center_y + 10, center_x -15, "%s a menti ! C'est l'heure de la roulette russe !", current_player);
+        attroff(COLOR_PAIR(11));
+    }else{
+        attron(COLOR_PAIR(3));
+        if (game_state->last_player_idx != -1){
+            char *last_player_name = game_state->players[game_state->last_player_idx].pseudo;
+            mvprintw(center_y + 8, center_x -10, "%s a joué %d cartes !", last_player_name, game_state->last_played_count);
+       }
+        mvprintw(center_y + 9, center_x - 2, "Pot : %d cartes", real_pot_count);
 
-    if (game_state->last_player_idx != -1){
-        char *last_player_name = game_state->players[game_state->last_player_idx].pseudo;
-        mvprintw(center_y + 8, center_x -10, "%s a joué %d cartes !", last_player_name, game_state->last_played_count);
+        char card_to_play[25];
+        switch (game_state->table_requirement)
+        {
+        case CARD_KING:
+            strcpy(card_to_play, "un roi");
+            break;
+        case CARD_QUEEN:
+            strcpy(card_to_play, "une reine");
+            break;
+        case CARD_ACE:
+            strcpy(card_to_play, "un as");
+            break;
+        default:
+            strcpy(card_to_play, "rien");
+            break;
+        }
+
+        mvprintw(center_y + 10, center_x - 10, "Le maitre du jeu demande %s", card_to_play);
+        attroff(COLOR_PAIR(3));
     }
-
-    mvprintw(center_y + 9, center_x - 2, "Pot : %d cartes", real_pot_count);
-
-    char card_to_play[25];
-    switch (game_state->table_requirement)
-    {
-    case CARD_KING:
-        strcpy(card_to_play, "un roi");
-        break;
-    case CARD_QUEEN:
-        strcpy(card_to_play, "une reine");
-        break;
-    case CARD_ACE:
-        strcpy(card_to_play, "un as");
-        break;
-    default:
-        strcpy(card_to_play, "rien");
-        break;
-    }
-
-    mvprintw(center_y + 10, center_x - 10, "Le maitre du jeu demande %s", card_to_play);
-    attroff(COLOR_PAIR(3));
 }
 
 void draw_opponent_card_hand(int top, int left, int bottom, int right, int nb_card)
@@ -558,6 +639,7 @@ void draw_opponents(int height, int width, GameState * game_state)
     int box_width  = width / 3 + 3;
     int top_y = 2;
 
+    char *alive = "";
     int opponent_id;
     if (nb_player == 2)
     {
@@ -566,10 +648,12 @@ void draw_opponents(int height, int width, GameState * game_state)
         int right = left + box_width;
 
         opponent_id = other_players_id[0];
+        if (game_state->players[opponent_id].is_alive) alive = "";
+        else alive = DEAD_SYMB;
 
         attron(COLOR_PAIR(3));
         draw_box(top_y, left, bottom, right+3);
-        mvprintw(top_y-1, left+2, "%s", game_state->players[opponent_id].pseudo);
+        mvprintw(top_y-1, left+2, "%s %s", game_state->players[opponent_id].pseudo, alive);
         attroff(COLOR_PAIR(3));
         draw_opponent_card_hand(top_y, left+4, bottom, right, game_state->players[opponent_id].cards_left);
     }
@@ -580,10 +664,12 @@ void draw_opponents(int height, int width, GameState * game_state)
         int right1 = left1 + box_width;
 
         opponent_id = other_players_id[0];
-
+        if (game_state->players[opponent_id].is_alive) alive = "";
+        else alive = DEAD_SYMB;
+  
         attron(COLOR_PAIR(3));
         draw_box(top_y, left1-3, bottom, right1);
-        mvprintw(top_y-1, left1+2, "%s", game_state->players[opponent_id].pseudo);
+        mvprintw(top_y-1, left1+2, "%s %s", game_state->players[opponent_id].pseudo, alive);
         attroff(COLOR_PAIR(3));
         draw_opponent_card_hand(top_y, left1, bottom, right1, game_state->players[opponent_id].cards_left);
 
@@ -591,10 +677,12 @@ void draw_opponents(int height, int width, GameState * game_state)
         int right2 = left2 + box_width;
 
         opponent_id = other_players_id[1];
+        if (game_state->players[opponent_id].is_alive) alive = "";
+        else alive = DEAD_SYMB;
 
         attron(COLOR_PAIR(3));
         draw_box(top_y, left2, bottom, right2+3);
-        mvprintw(top_y-1, left2+2, "%s", game_state->players[opponent_id].pseudo);
+        mvprintw(top_y-1, left2+2, "%s %s", game_state->players[opponent_id].pseudo, alive);
         attroff(COLOR_PAIR(3));
         draw_opponent_card_hand(top_y, left2+4, bottom, right2, game_state->players[opponent_id].cards_left);
     }
@@ -606,10 +694,12 @@ void draw_opponents(int height, int width, GameState * game_state)
         int right_top = left_top + box_width + 1;
 
         opponent_id = other_players_id[0];
+        if (game_state->players[opponent_id].is_alive) alive = "";
+        else alive = DEAD_SYMB;
 
         attron(COLOR_PAIR(3));
         draw_box(top_y, left_top, bottom_top, right_top);
-        mvprintw(top_y-1, left_top+2, "%s", game_state->players[opponent_id].pseudo);
+        mvprintw(top_y-1, left_top+2, "%s %s", game_state->players[opponent_id].pseudo, alive);
         attroff(COLOR_PAIR(3));
         draw_opponent_card_hand(top_y, left_top + 2, bottom_top, right_top, game_state->players[opponent_id].cards_left);
 
@@ -620,10 +710,12 @@ void draw_opponents(int height, int width, GameState * game_state)
         int bottom_g = mid_y + box_height;
 
         opponent_id = other_players_id[1];
+        if (game_state->players[opponent_id].is_alive) alive = "";
+        else alive = DEAD_SYMB;
 
         attron(COLOR_PAIR(3));
         draw_box(mid_y, left_g, bottom_g, right_g);
-        mvprintw(mid_y-1, left_g+2, "%s", game_state->players[opponent_id].pseudo);
+        mvprintw(mid_y-1, left_g+2, "%s %s", game_state->players[opponent_id].pseudo, alive);
         attroff(COLOR_PAIR(3));
         draw_opponent_card_hand(mid_y, left_g + 2, bottom_g, right_g, game_state->players[opponent_id].cards_left);
 
@@ -633,10 +725,12 @@ void draw_opponents(int height, int width, GameState * game_state)
         int bottom_d = mid_y + box_height;
 
         opponent_id = other_players_id[2];
+        if (game_state->players[opponent_id].is_alive) alive = "";
+        else alive = DEAD_SYMB;
 
         attron(COLOR_PAIR(3));
         draw_box(mid_y, right_x - 1, bottom_d, right_d);
-        mvprintw(mid_y-1, right_x+2, "%s", game_state->players[opponent_id].pseudo);
+        mvprintw(mid_y-1, right_x+2, "%s %s", game_state->players[opponent_id].pseudo, alive);
         attroff(COLOR_PAIR(3));
         draw_opponent_card_hand(mid_y, right_x + 1, bottom_d, right_d, game_state->players[opponent_id].cards_left);
     }
@@ -672,9 +766,15 @@ void display_game_state(GameState * game_state){
     int left = deck_x;
     int right = width - deck_x;
 
+    char *alive = "";
+    if (! my_state.is_alive) alive = DEAD_SYMB;
     attron(COLOR_PAIR(3));
     draw_box(top, left, bottom, right);
-    mvprintw(top-1, left+2, "Votre main");
+    mvprintw(top-1, left+2, "Votre main %s", alive);
+    if (russian_roulette && game_state->players[game_state->current_player_idx].pid == my_pid)
+        mvprintw(top-2, left+2, "[ENTREE] Tirer la balle");
+    else
+        mvprintw(top-2, left+2, "[<-->] Déplacer le curseur  [ESPACE] Sélectioner la carte  [ENTREE] Jouer les cartes sélectionnées  [L] Accuser le joueur précédent");        
     attroff(COLOR_PAIR(3));
 
     draw_player_card_hand(top+2, left, bottom, right, selected_card);
@@ -688,6 +788,41 @@ void display_game_state(GameState * game_state){
     // Pot
     // ===============================
     draw_pot(height, width, game_state);
+
+    refresh();
+}
+
+void display_white_screen(){
+    int height, width;
+    getmaxyx(stdscr, height, width);
+    clear();
+
+    attron(COLOR_PAIR(5));
+    for (int y = 0; y < height; y++){
+        mvhline(y, 0, ' ', width);
+    }
+    attroff(COLOR_PAIR(5));
+
+    refresh();
+
+    sleep(1);
+}
+
+void display_end_screen(GameState *game_state){
+    int height, width;
+    getmaxyx(stdscr, height, width);
+    clear();
+
+
+    attron(COLOR_PAIR(3));
+    for (int y = 0; y < height; y++){
+        mvhline(y, 0, ' ', width);
+    }
+
+    char *name = game_state->players[game_state->winner_idx].pseudo;
+    mvprintw(height/2, (width/2)-5, "%s a gagné la partie !", name);
+
+    attroff(COLOR_PAIR(3));
 
     refresh();
 }

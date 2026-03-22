@@ -88,7 +88,7 @@ int main() {
             }
             // update écrans joueurs apres action
             broadcast_update();
-                sem_post(sem_id);
+            sem_post(sem_id);
 
         }
         usleep(50000);
@@ -176,6 +176,8 @@ void lancer_nouvelle_manche() {
     init_deck();
     shuffle_deck();
     distribuer_cartes();
+
+    if (!game_state->players[game_state->current_player_idx].is_alive) passer_au_joueur_suivant();
 
     game_state->current_phase = PHASE_PLAYING;
 }
@@ -279,13 +281,14 @@ void gerer_play_cards(ClientMessage *msg) {
 
     game_state->pot_total_cards = game_state->pot_total_cards + msg->num_cards_played;
     passer_au_joueur_suivant();
+    verifier_fin_de_partie();
 }
 
 // verifie si le joueur precdeent a menti en retournant ses cartesS
 void gerer_call_liar(ClientMessage *msg) {
     int accusateur = trouver_joueur_par_pid(msg->client_pid);
     int accuse = game_state->last_player_idx;
-
+    game_state->last_player_idx = accusateur;
     int a_menti = 0; // 0 = non, 1 = oui
     for (int i = 0; i < game_state->last_played_count; i++) {
         CardValue c = game_state->last_played_cards_reveal[i];
@@ -309,10 +312,9 @@ void gerer_shoot(ClientMessage *msg) {
     if (index == -1 || index != game_state->current_player_idx) return;
 
     int balle = rand() % 6; //une chance sur 6 de mourrir
-    if (balle == 0) {
+    if (balle == 0)
         game_state->players[index].is_alive = false; // rip
-    }
-
+    
     verifier_fin_de_partie();   //vérficication au cas ou ils étaient que 2 et il meurt
                                 //faisable dans le balle==0 ???? (to do vérifier)
 
@@ -328,6 +330,7 @@ void gerer_quit(ClientMessage *msg) {
         game_state->players[index].pid = 0;
         game_state->players[index].is_alive = false;
         game_state->connected_players--;
+        passer_au_joueur_suivant();
         verifier_fin_de_partie();
     }
 }
@@ -365,12 +368,41 @@ void passer_au_joueur_suivant() {
 // check combien de joueurs sont en vie et change la phase de jeu
 void verifier_fin_de_partie() {
     int en_vie = 0;
+    int no_card = 0;
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (game_state->players[i].pid != 0 && game_state->players[i].is_alive == true) {
             en_vie++;
+
+            if (game_state->players[i].cards_left < 1){
+                no_card = 1;
+                break;
+            }
         }
     }
     if (en_vie <= 1) {
+
+        for (int i = 0; i < MAX_PLAYERS; i++)
+        {
+            if (game_state->players[i].pid != 0 && game_state->players[i].is_alive == true) {
+                game_state->winner_idx = i;
+            }
+        }
         game_state->current_phase = PHASE_GAME_OVER;
+        return;
     }
+
+    if (no_card == 1)
+    {
+        for (int i = 0; i < HAND_SIZE; i++)
+        {
+            if (game_state->players[i].cards_left < 1)
+            {
+                game_state->winner_idx = i;
+            }
+        }
+        game_state->current_phase = PHASE_GAME_OVER;
+        return;
+    }
+    
+
 }

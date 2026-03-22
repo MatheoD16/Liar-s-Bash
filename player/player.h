@@ -17,6 +17,8 @@
 
 #include "../common.h"
 
+
+#define DEAD_SYMB "☠"
 // --- GLOBAL STATE ---
 
 // pointeur vers la SHM (lecture seule)
@@ -92,6 +94,11 @@ void add_card_to_play(int id);
 void remove_card_to_play(int id);
 
 void play_turn(GameState *game_state);
+
+void play_russian_roulette(GameState * game_state);
+
+void end_game_loop();
+
 // --- SHM ACCESS ---
 
 // lit l'etat du jeu (avec semaphore)
@@ -148,73 +155,9 @@ void draw_player_card_hand(int top, int left, int bottom, int right, int selecte
 
 void display_waiting_lobby(GameState *game_state);
 
-//////////////////
-//DONNEES DE TEST
-/////////////////
+void display_white_screen();
 
-// Génère un GameState de test avec `num_players` actifs (max MAX_PLAYERS)
-GameState create_test_gamestate(int num_players) {
-    if (num_players > MAX_PLAYERS) num_players = MAX_PLAYERS;
-    if (num_players < 0) num_players = 0;
-
-    GameState gs;
-
-    // --- phase du jeu ---
-    gs.current_phase = PHASE_PLAYING;
-    gs.connected_players = num_players;
-    gs.current_player_idx = 0;
-    gs.last_player_idx = (num_players > 1) ? 1 : 0;
-    gs.table_requirement = CARD_ACE;
-    gs.pot_total_cards = 0;
-    gs.last_played_count = 3;
-
-    // --- dernier coup joué ---
-    for (int i = 0; i < 3; i++) {
-        gs.last_played_cards_reveal[i] = CARD_NONE;
-    }
-
-    // --- joueurs ---
-    for (int i = 0; i < MAX_PLAYERS; i++) {
-        PlayerState *p = &gs.players[i];
-        if (i < num_players) {
-            p->pid = 1000 + i;  // PID fictif
-            snprintf(p->pseudo, sizeof(p->pseudo), "Joueur n°%d", i + 1);
-            p->is_alive = true;
-
-            // nombre aléatoire de cartes entre 0 et HAND_SIZE
-            int num_cards = rand() % (HAND_SIZE + 1);
-            p->cards_left = num_cards;
-
-            // remplir les cartes réelles
-            for (int j = 0; j < num_cards; j++) {
-                int val = rand() % 4;  // 0..3 → CARD_KING..CARD_JOKER
-                p->hand[j] = (CardValue)val;
-            }
-
-            // remplir le reste avec CARD_NONE
-            for (int j = num_cards; j < HAND_SIZE; j++) {
-                p->hand[j] = CARD_NONE;
-            }
-
-            p->bullets_survived = rand() % REVOLVER_CAPACITY;
-        } else {
-            // joueur inexistant
-            p->pid = 0;
-            p->is_alive = false;
-            p->cards_left = 0;
-            for (int j = 0; j < HAND_SIZE; j++) {
-                p->hand[j] = CARD_NONE;
-            }
-            p->bullets_survived = 0;
-        }
-    }
-
-    // --- log ---
-    snprintf(gs.log_message, sizeof(gs.log_message),
-             "Etat initial de test pour %d joueurs.", num_players);
-
-    return gs;
-}
+void display_end_screen(GameState *game_state);
 
 
 #endif
