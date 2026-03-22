@@ -11,6 +11,7 @@ int nb_other_player = 0;
 
 int selected_card = -1;
 
+
 int card_id_to_play[MAX_CARD_PLAYABLE];
 int nb_card_played = 0;
 
@@ -130,23 +131,41 @@ void game_loop(){
 void select_card(GameState *game_state){
 
     int ch;
-    selected_card = 0; // première carte par défaut
+
+    selected_card = 0;
+    for (int i = 0; i < HAND_SIZE; i ++){
+        if (my_state.hand[i] != CARD_NONE){
+            selected_card = i;
+            break;
+        }
+    }
+    
     display_game_state(game_state);
 
     while (1) {
         ch = getch();
         if (ch != ERR){
-        if (ch == KEY_LEFT) {
-            if (selected_card > 0) selected_card--;
-        } else if (ch == KEY_RIGHT) {
-            if (selected_card < my_state.cards_left - 1) selected_card++;
-        } else if (ch == ' '){
-            if (is_card_played(selected_card)) remove_card_to_play(selected_card);
-            else add_card_to_play(selected_card);
-        } else if (ch == '\n') {
-            break;
-        }
-        display_game_state(game_state);
+            if (ch == KEY_LEFT) {
+
+                int initial_pos = selected_card;
+                if (selected_card > 0) selected_card--;
+                while (selected_card > 0 && my_state.hand[selected_card] == CARD_NONE) selected_card--;
+                if (my_state.hand[selected_card] == CARD_NONE) selected_card = initial_pos;
+
+            } else if (ch == KEY_RIGHT) {
+
+                int initial_pos = selected_card;
+                if (selected_card < HAND_SIZE - 1) selected_card++;
+                while (selected_card < HAND_SIZE - 1 && my_state.hand[selected_card] == CARD_NONE) selected_card ++;
+                if (my_state.hand[selected_card] == CARD_NONE) selected_card = initial_pos;
+
+            } else if (ch == ' '){
+                if (is_card_played(selected_card)) remove_card_to_play(selected_card);
+                else add_card_to_play(selected_card);
+            } else if (ch == '\n' && nb_card_played > 0) {
+                break;
+            }
+            display_game_state(game_state);
     }
     }
     selected_card = -1;
@@ -512,17 +531,21 @@ void draw_player_card_hand(int top, int left, int bottom, int right, int selecte
     int start_x = left + (box_width - total_width) / 2;
     int start_y = top + (bottom - top - card_h) / 2;
 
+
     int is_selected = 0;
+    int offset = 0;
+
     for(int i = 0; i < HAND_SIZE; i++)
     {
         if (selected_card == i) is_selected = 1;
         CardValue card = my_state.hand[i];
         if (card != CARD_NONE){
-            draw_card(start_y,
-                start_x + i * (card_w + spacing),
-                card, is_selected, is_card_played(i));
-            is_selected = 0;
-        }//TODO REGLER LE BUG CARTE ? (FAIRE UNE COPIE DE LA MAIN DU JOUEUR EN SUPPRIMANT LES CARTES INUTILES + GERER LES BON ID peut etre une struct basic)
+                draw_card(start_y,
+                    start_x + offset * (card_w + spacing),
+                    card, is_selected, is_card_played(i));
+                offset ++;
+            }
+        is_selected = 0;
     }
 }
 
