@@ -15,6 +15,7 @@
 #define SEM_NAME "/liars_bash_sem"
 
 // --- GAME CONFIG ---
+#define MAX_CARD_PLAYABLE 3
 #define MAX_PLAYERS 4
 #define HAND_SIZE 5
 #define REVOLVER_CAPACITY 6
@@ -55,7 +56,7 @@ typedef struct {
 
     // Args pour ACT_PLAY_CARDS
     int num_cards_played; // 1 a 3
-    int card_indices[3];  // Index dans la main (0 a 4)
+    int card_indices[MAX_CARD_PLAYABLE];  // Index dans la main (0 a 4)
 } ClientMessage; //faut tout mettre parceque les paquets s'envoient pas dans la BL s'ils font pas la meme taille
 //(c'est chiant j'ai passé 1h a comprendre le man c'est bien eft)
 
@@ -78,7 +79,7 @@ typedef struct {
     // infos tour par tour
     int current_player_idx;
     int last_player_idx;                   //pour le menteur
-    CardValue last_played_cards_reveal[3]; //pour afifcher en cas de menteur
+    CardValue last_played_cards_reveal[MAX_CARD_PLAYABLE]; //pour afficher en cas de menteur
 
     // infos table
     CardValue table_requirement;

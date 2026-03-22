@@ -36,9 +36,9 @@ int main() {
         //ajout affichage ncruses
         clear();
         if (game_state->current_phase == PHASE_LOBBY) {
-            mvprintw (2,4, "====== LIAR's BAR - Lobby =======");
+            mvprintw (1,4, "====== LIAR's BAR - Lobby =======");
             mvprintw (2,4, "bienvenue au liar's bar !");
-            mvprintw(2,4, "%d joueurs connectés sur %d", game_state->connected_players, MAX_PLAYERS);
+            mvprintw(3,4, "%d joueurs connectés sur %d", game_state->connected_players, MAX_PLAYERS);
             if (game_state->connected_players >= 2) {
                 attron(A_REVERSE);
                 mvprintw(6, 4, "[ FORCER LE DEMARRAGE : appyer sur entrée ]");
@@ -88,6 +88,8 @@ int main() {
             }
             // update écrans joueurs apres action
             broadcast_update();
+                sem_post(sem_id);
+
         }
         usleep(50000);
 

@@ -6,21 +6,21 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <time.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <sys/mman.h>
 #include <mqueue.h>
 #include <semaphore.h>
-#include <signal.h>
-#include <stdbool.h>
+#include <locale.h>
 #include <ncurses.h>
-#include<locale.h>
 
 #include "../common.h"
 
 // --- GLOBAL STATE ---
 
 // pointeur vers la SHM (lecture seule)
-extern GameState *game_state;
+extern GameState *game_state_shm;
 
 // id shm
 extern int shm_fd;
@@ -37,8 +37,11 @@ extern pid_t my_pid;
 // index du joueur dans game_state->players[]
 extern int my_player_index;
 
+// state du player
+extern PlayerState my_state;
+
 // flag modifie par le handler de signal
-extern volatile sig_atomic_t update_flag;
+extern int update_flag;
 
 
 // --- IPC ---
@@ -67,11 +70,7 @@ void setup_signal_handlers();
 
 // --- GAME LOGIC ---
 
-// envoie une demande de login au broker
-void send_login(const char *pseudo);
-
-// envoie une action play_cards
-void send_play_cards(int num_cards, int indices[]);
+void game_loop();
 
 // envoie un call liar
 void send_call_liar();
@@ -82,7 +81,17 @@ void send_shoot();
 // envoie un quit propre
 void send_quit();
 
+void player_login();
 
+void select_card();
+
+int is_card_played(int id);
+
+void add_card_to_play(int id);
+
+void remove_card_to_play(int id);
+
+void play_turn(GameState *game_state);
 // --- SHM ACCESS ---
 
 // lit l'etat du jeu (avec semaphore)
@@ -96,7 +105,7 @@ void update_my_index();
 // --- UI ---
 
 // affiche tout l'etat du jeu
-void display_game_state();
+void display_game_state(GameState * game_state);
 
 // affiche uniquement la main du joueur
 void display_hand();
@@ -120,21 +129,92 @@ void init_graphic();
 void draw_box(int top, int left, int bottom, int right);
 
 // dessine la main des adversaires (position change en fonction du nombre de joueur)
-void draw_opponents(int height, int width);
+void draw_opponents(int height, int width, GameState *game_state);
 
 // dessine une carte
-void draw_card(int y, int x, int type, int color);
+void draw_card(int y, int x, CardValue card, int is_selected, int is_played);
 
 // dessine le pot au milieu de la table
-void draw_pot(int height, int width);
+void draw_pot(int height, int width, GameState *game_state);
 
 // dessine une carte face cachée
 void draw_card_back(int y, int x);
 
 // dessine les cartes dans la main des adversaires
-void draw_opponent_card_hand(int top, int left, int bottom, int right);
+void draw_opponent_card_hand(int top, int left, int bottom, int right, int nb_card);
 
 // dessine les cartes dans la main du joueur
-void draw_player_card_hand(int top, int left, int bottom, int right);
+void draw_player_card_hand(int top, int left, int bottom, int right, int selected_card);
+
+void display_waiting_lobby(GameState *game_state);
+
+//////////////////
+//DONNEES DE TEST
+/////////////////
+
+// Génère un GameState de test avec `num_players` actifs (max MAX_PLAYERS)
+GameState create_test_gamestate(int num_players) {
+    if (num_players > MAX_PLAYERS) num_players = MAX_PLAYERS;
+    if (num_players < 0) num_players = 0;
+
+    GameState gs;
+
+    // --- phase du jeu ---
+    gs.current_phase = PHASE_PLAYING;
+    gs.connected_players = num_players;
+    gs.current_player_idx = 0;
+    gs.last_player_idx = (num_players > 1) ? 1 : 0;
+    gs.table_requirement = CARD_ACE;
+    gs.pot_total_cards = 0;
+    gs.last_played_count = 3;
+
+    // --- dernier coup joué ---
+    for (int i = 0; i < 3; i++) {
+        gs.last_played_cards_reveal[i] = CARD_NONE;
+    }
+
+    // --- joueurs ---
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        PlayerState *p = &gs.players[i];
+        if (i < num_players) {
+            p->pid = 1000 + i;  // PID fictif
+            snprintf(p->pseudo, sizeof(p->pseudo), "Joueur n°%d", i + 1);
+            p->is_alive = true;
+
+            // nombre aléatoire de cartes entre 0 et HAND_SIZE
+            int num_cards = rand() % (HAND_SIZE + 1);
+            p->cards_left = num_cards;
+
+            // remplir les cartes réelles
+            for (int j = 0; j < num_cards; j++) {
+                int val = rand() % 4;  // 0..3 → CARD_KING..CARD_JOKER
+                p->hand[j] = (CardValue)val;
+            }
+
+            // remplir le reste avec CARD_NONE
+            for (int j = num_cards; j < HAND_SIZE; j++) {
+                p->hand[j] = CARD_NONE;
+            }
+
+            p->bullets_survived = rand() % REVOLVER_CAPACITY;
+        } else {
+            // joueur inexistant
+            p->pid = 0;
+            p->is_alive = false;
+            p->cards_left = 0;
+            for (int j = 0; j < HAND_SIZE; j++) {
+                p->hand[j] = CARD_NONE;
+            }
+            p->bullets_survived = 0;
+        }
+    }
+
+    // --- log ---
+    snprintf(gs.log_message, sizeof(gs.log_message),
+             "Etat initial de test pour %d joueurs.", num_players);
+
+    return gs;
+}
+
 
 #endif
