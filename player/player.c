@@ -247,7 +247,7 @@ void play_turn(GameState *game_state){
             send_played_action();
         }
 
-        memset(card_id_to_play, -1, 3 * sizeof(int));
+        memset(card_id_to_play, -1, MAX_CARD_PLAYABLE * sizeof(int));
         nb_card_played = 0;
         liar_call = 0;
     }

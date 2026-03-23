@@ -113,4 +113,5 @@ void passer_au_joueur_suivant();
 // si un seul survivant, passe en PHASE_GAME_OVER
 void verifier_fin_de_partie();
 
+void demarrer_partie();
 #endif // BROKER_H

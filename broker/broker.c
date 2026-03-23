@@ -62,7 +62,7 @@ int main() {
         if (choice == '\n' && game_state->current_phase == PHASE_LOBBY && game_state->connected_players >=2 ) {
             //démarrage du jeu
             game_state->current_player_idx=0;
-            lancer_nouvelle_manche();
+            demarrer_partie();
             broadcast_update();
         }
 
@@ -74,17 +74,26 @@ int main() {
 
             //apel de la bonne fonction en fonction de l'action recue
             switch (msg.action) {
-                case ACT_LOGIN:      gerer_login(&msg); break;
-                case ACT_PLAY_CARDS: gerer_play_cards(&msg); break;
+                case ACT_LOGIN:
+				    gerer_login(&msg);
+					sprintf(dernier_log_important, "%s a rejoint la table.", msg.pseudo);
+					break;
+                case ACT_PLAY_CARDS:
+					gerer_play_cards(&msg);
+					sprintf(dernier_log_important, "%s a pose %d carte(s).", msg.pseudo, msg.num_cards_played);
+					break;
                 case ACT_CALL_LIAR:
                     gerer_call_liar(&msg);
-                    strncpy(dernier_log_important, game_state->log_message, 127);
+                    sprintf(dernier_log_important, "%s a crie MENTEUR !", msg.pseudo);
                     break;
                 case ACT_SHOOT:
                     gerer_shoot(&msg);
-                    strncpy(dernier_log_important, game_state->log_message, 127);
+                    sprintf(dernier_log_important, "%s a joue a la roulette russe...", msg.pseudo);
                     break;
-                case ACT_QUIT:       gerer_quit(&msg); break;
+                case ACT_QUIT:
+					gerer_quit(&msg);
+					sprintf(dernier_log_important, "%s a quitte la partie.", msg.pseudo);
+					break;
             }
             // update écrans joueurs apres action
             broadcast_update();
@@ -143,8 +152,17 @@ void cleanup() {
 }
 
 void handle_sigint(int sig) {
+
+	//catch crl c pour arreter les joueuers
+	if (game_state != NULL) {
+		for (int i=0; i < game_state->connected_players; i++) {
+			if (game_state->players[i].is_alive) {
+				kill(game_state->players[i].pid, SIGKILL);
+			}
+		}
+	}
+
     cleanup();
-    //TODO: compléter (?)
 }
 
 // projet messagerie / adapté vars (ancienne boucle kill)
@@ -172,10 +190,6 @@ void lancer_nouvelle_manche() {
 
     // choisit aléatoire roi0, dame1 ou as2
     game_state->table_requirement = rand() % 3;
-
-    init_deck();
-    shuffle_deck();
-    distribuer_cartes();
 
     if (!game_state->players[game_state->current_player_idx].is_alive) passer_au_joueur_suivant();
 
@@ -217,7 +231,8 @@ void shuffle_deck() {
 // tirer la premiere carte du paquet
 CardValue piocher_carte() {
     if (main_deck.top_index >= LIAR_DECK_SIZE) {
-        return CARD_NONE;
+        init_deck();
+		shuffle_deck();
     }
     CardValue carte = main_deck.cards[main_deck.top_index];
     main_deck.top_index+=1;
@@ -260,7 +275,7 @@ void gerer_login(ClientMessage *msg) {
     // autostart a 4 joueurs
     if (game_state->connected_players == MAX_PLAYERS) {
         game_state->current_player_idx = 0;
-        lancer_nouvelle_manche();
+        demarrer_partie();
     }
 }
 
@@ -269,6 +284,13 @@ void gerer_play_cards(ClientMessage *msg) {
     int index = trouver_joueur_par_pid(msg->client_pid);
     if (index == -1 || index != game_state->current_player_idx) return;
 
+	// possibilité d'accuser alors qu'un joueur a posé ses dernies cartes
+	if (game_state->last_player_idx != -1 && game_state->players[game_state->last_player_idx].cards_left == 0) {
+
+        game_state->winner_idx = game_state->last_player_idx;
+        game_state->current_phase = PHASE_GAME_OVER;
+        return; //partie fine car pas d'ccusation
+    }
     game_state->last_played_count = msg->num_cards_played;
     game_state->last_player_idx = index;
 
@@ -281,14 +303,12 @@ void gerer_play_cards(ClientMessage *msg) {
 
     game_state->pot_total_cards = game_state->pot_total_cards + msg->num_cards_played;
     passer_au_joueur_suivant();
-    verifier_fin_de_partie();
 }
 
 // verifie si le joueur precdeent a menti en retournant ses cartesS
 void gerer_call_liar(ClientMessage *msg) {
     int accusateur = trouver_joueur_par_pid(msg->client_pid);
     int accuse = game_state->last_player_idx;
-    game_state->last_player_idx = accusateur;
     int a_menti = 0; // 0 = non, 1 = oui
     for (int i = 0; i < game_state->last_played_count; i++) {
         CardValue c = game_state->last_played_cards_reveal[i];
@@ -299,11 +319,37 @@ void gerer_call_liar(ClientMessage *msg) {
 
     if (a_menti == 1) {
         game_state->current_player_idx = accuse; // cramé il prend le gun
-    } else {
-        game_state->current_player_idx = accusateur; // il c'est trompé il prend le gun
-    }
+		int nb_a_piocher = 0;
+        // si le joueur avait menti sur sa derniere carte, il reprend 5 cartes
+        if (game_state->players[accuse].cards_left == 0) {
+            nb_a_piocher = 5;
+        } else {
+            nb_a_piocher = game_state->last_played_count;
+        }
 
-    game_state->current_phase = PHASE_ROULETTE;
+        // On le fait piocher le bon nombre de fois
+        for (int k = 0; k < nb_a_piocher; k++) {
+            for (int i = 0; i < HAND_SIZE; i++) {
+                if (game_state->players[accuse].hand[i] == CARD_NONE) {
+                    game_state->players[accuse].hand[i] = piocher_carte();
+                    game_state->players[accuse].cards_left += 1;
+                    break; // il a pioche une carte, on passe a la suivante
+                }
+            }
+        }
+
+        game_state->current_phase = PHASE_ROULETTE;
+
+    } else {
+        // VICTOIRE DE L'ACCUSE S'IL EST INNOCENT ET N'A PLUS DE CARTES
+        if (game_state->players[accuse].cards_left == 0) {
+            game_state->winner_idx = accuse; // S'il a dit la verite et n'a plus de carte, il gagne
+            game_state->current_phase = PHASE_GAME_OVER;
+        } else {
+            game_state->current_player_idx = accusateur; // L'accusateur s'est trompe, il prend le gun
+            game_state->current_phase = PHASE_ROULETTE;
+        }
+        }
 }
 
 // tire a la roulette russe
@@ -314,11 +360,11 @@ void gerer_shoot(ClientMessage *msg) {
     int balle = rand() % 6; //une chance sur 6 de mourrir
     if (balle == 0)
         game_state->players[index].is_alive = false; // rip
-    
     verifier_fin_de_partie();   //vérficication au cas ou ils étaient que 2 et il meurt
                                 //faisable dans le balle==0 ???? (to do vérifier)
 
     if (game_state->current_phase != PHASE_GAME_OVER) {
+		passer_au_joueur_suivant();
         lancer_nouvelle_manche();
     }
 }
@@ -368,41 +414,23 @@ void passer_au_joueur_suivant() {
 // check combien de joueurs sont en vie et change la phase de jeu
 void verifier_fin_de_partie() {
     int en_vie = 0;
-    int no_card = 0;
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (game_state->players[i].pid != 0 && game_state->players[i].is_alive == true) {
             en_vie++;
-
-            if (game_state->players[i].cards_left < 1){
-                no_card = 1;
-                break;
-            }
+			game_state->winner_idx = i;
         }
     }
     if (en_vie <= 1) {
-
-        for (int i = 0; i < MAX_PLAYERS; i++)
-        {
-            if (game_state->players[i].pid != 0 && game_state->players[i].is_alive == true) {
-                game_state->winner_idx = i;
-            }
-        }
         game_state->current_phase = PHASE_GAME_OVER;
         return;
     }
+}
 
-    if (no_card == 1)
-    {
-        for (int i = 0; i < HAND_SIZE; i++)
-        {
-            if (game_state->players[i].cards_left < 1)
-            {
-                game_state->winner_idx = i;
-            }
-        }
-        game_state->current_phase = PHASE_GAME_OVER;
-        return;
-    }
-    
-
+//pour remplacer la nouvelle manche qui init tout
+void demarrer_partie() {
+    init_deck();
+    shuffle_deck();
+    distribuer_cartes();
+    game_state->current_player_idx = 0;
+    lancer_nouvelle_manche();
 }

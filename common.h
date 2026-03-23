@@ -15,7 +15,7 @@
 #define SEM_NAME "/liars_bash_sem"
 
 // --- GAME CONFIG ---
-#define MAX_CARD_PLAYABLE 3
+#define MAX_CARD_PLAYABLE 2
 #define MAX_PLAYERS 4
 #define HAND_SIZE 5
 #define REVOLVER_CAPACITY 6
