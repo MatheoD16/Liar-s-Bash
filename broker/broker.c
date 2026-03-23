@@ -156,9 +156,7 @@ void handle_sigint(int sig) {
 	//catch crl c pour arreter les joueuers
 	if (game_state != NULL) {
 		for (int i=0; i < game_state->connected_players; i++) {
-			if (game_state->players[i].is_alive) {
-				kill(game_state->players[i].pid, SIGKILL);
-			}
+            kill(game_state->players[i].pid, SIGTERM);		
 		}
 	}
 

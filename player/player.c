@@ -547,9 +547,9 @@ void draw_pot(int height, int width, GameState * game_state)
         char *current_player = game_state->players[game_state->current_player_idx].pseudo;
         
         if (game_state->last_player_idx == game_state->current_player_idx)
-            mvprintw(center_y + 10, center_x -15, "%s s'est trompé ! C'est l'heure de la roulette russe !", current_player);
-        else
             mvprintw(center_y + 10, center_x -15, "%s a menti ! C'est l'heure de la roulette russe !", current_player);
+        else
+            mvprintw(center_y + 10, center_x -15, "%s s'est trompé ! C'est l'heure de la roulette russe !", current_player);
         attroff(COLOR_PAIR(11));
     }else{
         attron(COLOR_PAIR(3));
@@ -856,7 +856,7 @@ void display_waiting_lobby(GameState *game_state) {
                  game_state->connected_players, MAX_PLAYERS);
         if (game_state->connected_players >= 2) {
             attron(A_REVERSE);
-            mvprintw(9, 4, "[ Attente du lancement ou appuyez sur entrée pour forcer ]");
+            mvprintw(9, 4, "[ Attente du lancement ]");
             attroff(A_REVERSE);
         }
     }
