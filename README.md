@@ -107,6 +107,8 @@ Cela génère :
 * `executables/broker`
 * `executables/player`
 
+⚠️ Il faut que le répertoire executables existe !
+
 ---
 
 ### 🧹 Nettoyage
